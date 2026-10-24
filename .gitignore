@@ -1,0 +1,25 @@
+# Frontend dependencies and build files
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Local database
+*.db
+*.sqlite3
+
+# OS files
+.DS_Store
+
+# Logs
+*.log
