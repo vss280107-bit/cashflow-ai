@@ -1,74 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import User
-from ..schemas import WhatIfIn
-from ..services import evaluation, forecaster, planner
-from ..services.data import load_df
-from ..services.recurring import add_keys, detect
+from ..models import Transaction, User
+from ..services.forecaster import forecast, monthly_expenses
+import pandas as pd
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
 
-def _forecast(user: User, db: Session, horizon: int, extras=None):
-    df = load_df(db, user.id)
-    if df.empty:
-        raise HTTPException(409, "No transactions yet. Add some or load the demo data.")
-    fc = forecaster.build_forecast(df, user.id, user.opening_balance, horizon, extras)
-    return df, fc
-
-
-@router.get("/forecast")
-def get_forecast(horizon: int = Query(30, ge=7, le=60), user: User = Depends(get_current_user),
-                 db: Session = Depends(get_db)):
-    df, fc = _forecast(user, db, horizon)
-    return {**fc, "threshold": user.low_balance_threshold, "plan": planner.build_plan(fc, df, user.low_balance_threshold)}
-
-
-@router.post("/forecast/what-if")
-def what_if(body: WhatIfIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    df, base = _forecast(user, db, body.horizon)
-    _, scen = _forecast(user, db, body.horizon, body.expenses)
-    th = user.low_balance_threshold
-    plan = planner.build_plan(scen, df, th)
-    breach = next((r["date"] for r in scen["daily"] if r["balance"] < th), None)
-    breach_low = next((r["date"] for r in scen["daily"] if r["balance_low"] < th), None)
-    total = sum(e.amount for e in body.expenses)
-    return {
-        "baseline": base["daily"], "scenario": scen["daily"], "threshold": th,
-        "total_planned": round(total, 2),
-        "end_balance_change": round(scen["summary"]["expected_balance"] - base["summary"]["expected_balance"], 2),
-        "scenario_end_balance": scen["summary"]["expected_balance"],
-        "first_breach_expected": breach, "first_breach_worst_case": breach_low,
-        "verdict": ("unsafe" if breach else "risky" if breach_low else "safe"),
-        "headroom_after": plan["headroom"], "risk_periods": plan["risk_periods"],
-        "disclaimer": planner.DISCLAIMER,
-    }
+def _rows(db: Session, user_id: int) -> pd.DataFrame:
+    transactions = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(Transaction.date).all()
+    return pd.DataFrame([{"date": t.date, "amount": t.amount, "type": t.type, "category": t.category} for t in transactions], columns=["date", "amount", "type", "category"])
 
 
 @router.get("/summary")
 def summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    df = load_df(db, user.id)
+    df = _rows(db, user.id)
     if df.empty:
-        return {"monthly": [], "categories": [], "recurring": []}
-    monthly = (df.assign(month=df["date"].dt.strftime("%Y-%m")).pivot_table(
-        index="month", columns="type", values="amount", aggfunc="sum", fill_value=0).reset_index())
-    for c in ("income", "expense"):
-        if c not in monthly: monthly[c] = 0.0
-    last90 = df[(df["type"] == "expense") & (df["date"] > df["date"].max() - __import__("pandas").Timedelta(days=90))]
-    cats = last90.groupby("category")["amount"].sum().sort_values(ascending=False)
-    return {
-        "monthly": [{"month": r.month, "income": round(r.income, 2), "expense": round(r.expense, 2)}
-                    for r in monthly.itertuples()],
-        "categories": [{"category": k, "amount": round(float(v), 2)} for k, v in cats.items()],
-        "recurring": [i.to_dict() for i in detect(df)],
-    }
+        return {"monthly": [], "categories": [], "insights": []}
+    monthly = monthly_expenses(df)
+    expenses = df[df["type"] == "expense"]
+    category_totals = expenses.groupby("category")["amount"].sum().sort_values(ascending=False)
+    categories = [{"category": name, "amount": round(float(amount), 2)} for name, amount in category_totals.items()]
+    last = monthly.iloc[-1]
+    previous = monthly.iloc[-2] if len(monthly) > 1 else None
+    insights = []
+    if previous is not None and previous.expense > 0 and last.expense > previous.expense * 1.1:
+        insights.append("Your expenses increased compared with last month.")
+    if categories:
+        insights.append(f"Your largest recorded expense category is {categories[0]['category']}.")
+    return {"monthly": [{"month": r.month.strftime("%Y-%m"), "income": round(float(r.income), 2), "expense": round(float(r.expense), 2)} for r in monthly.itertuples()], "categories": categories, "insights": insights}
+
+
+@router.get("/forecast")
+def get_forecast(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return forecast(_rows(db, user.id))
 
 
 @router.get("/model/evaluation")
-def model_evaluation(horizon: int = Query(30, ge=7, le=45), user: User = Depends(get_current_user),
-                     db: Session = Depends(get_db)):
-    df = load_df(db, user.id)
-    return evaluation.run_backtest(df, user.opening_balance, user.low_balance_threshold, horizon)
+def model_evaluation(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    result = forecast(_rows(db, user.id))
+    if not result["available"]:
+        return {"available": False, "reason": result["message"]}
+    if result["mae"] is None:
+        return {"available": False, "reason": "Add at least ten months of monthly records to evaluate a time-based test split."}
+    return {"available": True, "mae": result["mae"], "evaluation": result["evaluation"], "model": result["model"]}

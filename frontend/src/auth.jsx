@@ -26,7 +26,17 @@ export function AuthProvider({ children }) {
   const signIn = async (mode, form) => {
     const { access_token } = await (mode === "register" ? api.register(form) : api.login(form));
     setToken(access_token);
-    await refresh();
+    try {
+      const signedInUser = await api.me();
+      setUser(signedInUser);
+      return signedInUser;
+    } catch (error) {
+      setToken(null);
+      setUser(null);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
   const signOut = () => {
     setToken(null);

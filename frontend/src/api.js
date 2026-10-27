@@ -16,7 +16,8 @@ async function request(path, { method = "GET", body, form } = {}) {
     let msg = res.statusText;
     try {
       const j = await res.json();
-      msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+      if (typeof j.detail === "string") msg = j.detail;
+      else if (Array.isArray(j.detail)) msg = j.detail.map((item) => item.msg).filter(Boolean).join("; ") || msg;
     } catch {}
     throw new Error(msg);
   }
@@ -27,10 +28,10 @@ export const api = {
   register: (b) => request("/auth/register", { method: "POST", body: b }),
   login: (b) => request("/auth/login", { method: "POST", body: b }),
   me: () => request("/auth/me"),
-  updateMe: (b) => request("/auth/me", { method: "PATCH", body: b }),
   transactions: (qs = "") => request(`/transactions${qs}`),
   categories: () => request("/transactions/categories"),
   addTransaction: (b) => request("/transactions", { method: "POST", body: b }),
+  updateTransaction: (id, b) => request(`/transactions/${id}`, { method: "PUT", body: b }),
   deleteTransaction: (id) => request(`/transactions/${id}`, { method: "DELETE" }),
   importCsv: (file) => {
     const form = new FormData();
@@ -39,9 +40,10 @@ export const api = {
   },
   loadDemo: (replace = false) => request(`/transactions/demo?replace=${replace}`, { method: "POST" }),
   forecast: (h) => request(`/forecast?horizon=${h}`),
-  whatIf: (b) => request("/forecast/what-if", { method: "POST", body: b }),
   summary: () => request("/summary"),
   evaluation: () => request("/model/evaluation"),
+  budget: (month) => request(`/budget?month=${encodeURIComponent(month)}`),
+  updateBudget: (amount, month) => request("/budget", { method: "PUT", body: { amount, month } }),
 };
 
 export const inr = (n) =>

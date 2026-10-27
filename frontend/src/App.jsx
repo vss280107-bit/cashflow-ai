@@ -3,26 +3,31 @@ import { useAuth } from "./auth.jsx";
 import Auth from "./pages/Auth.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Transactions from "./pages/Transactions.jsx";
-import Planner from "./pages/Planner.jsx";
 import Model from "./pages/Model.jsx";
-import Settings from "./pages/Settings.jsx";
+import { BrandMark, NavigationIcon } from "./components/Brand.jsx";
 
 function Shell({ children }) {
   const { user, signOut } = useAuth();
+  const displayName = user.name || user.email;
+  const initials = displayName.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><span className="logo">₹</span> CashFlow AI</div>
-        <nav>
-          <NavLink to="/" end>Dashboard</NavLink>
-          <NavLink to="/transactions">Transactions</NavLink>
-          <NavLink to="/planner">What-if planner</NavLink>
-          <NavLink to="/model">Model & accuracy</NavLink>
-          <NavLink to="/settings">Settings</NavLink>
+        <div className="sidebar-top">
+          <NavLink to="/" className="brand"><BrandMark /><span className="brand-wordmark"><strong>CashFlow</strong><em>AI</em></span></NavLink>
+        </div>
+        <div className="nav-label">Your money</div>
+        <nav className="side-nav" aria-label="Main navigation">
+          <NavLink to="/" end className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><NavigationIcon kind="dashboard" /></span>Dashboard</NavLink>
+          <NavLink to="/transactions" className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><NavigationIcon kind="transactions" /></span>Transactions</NavLink>
+          <NavLink to="/model" className={({ isActive }) => isActive ? "active" : ""}><span className="nav-icon"><NavigationIcon kind="forecast" /></span>Forecast</NavLink>
         </nav>
-        <div className="sidebar-foot">
-          <div className="muted small">{user.name || user.email}</div>
-          <button className="link" onClick={signOut}>Sign out</button>
+        <div className="sidebar-bottom">
+          <div className="user-panel">
+            <div className="avatar" aria-hidden="true">{initials || "U"}</div>
+            <div className="user-details"><strong>{displayName}</strong><span>Personal account</span></div>
+            <button className="signout" onClick={signOut}>Sign out</button>
+          </div>
         </div>
       </aside>
       <main className="content">{children}</main>
@@ -45,9 +50,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/transactions" element={<Transactions />} />
-        <Route path="/planner" element={<Planner />} />
         <Route path="/model" element={<Model />} />
-        <Route path="/settings" element={<Settings />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

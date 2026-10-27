@@ -1,18 +1,32 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    name: str = ""
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("password")
+    @classmethod
+    def password_length(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 UTF-8 bytes or fewer")
+        return value
 
 
 class LoginIn(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_length(cls, value):
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 UTF-8 bytes or fewer")
+        return value
 
 
 class TokenOut(BaseModel):
@@ -24,24 +38,16 @@ class UserOut(BaseModel):
     id: int
     email: str
     name: str
-    opening_balance: float
-    low_balance_threshold: float
 
     model_config = {"from_attributes": True}
 
 
-class UserUpdate(BaseModel):
-    name: str | None = None
-    opening_balance: float | None = None
-    low_balance_threshold: float | None = Field(default=None, ge=0)
-
-
 class TransactionIn(BaseModel):
     date: date
-    amount: float = Field(gt=0)
+    amount: float = Field(gt=0, allow_inf_nan=False)
     type: Literal["income", "expense"]
     category: str | None = None
-    description: str = ""
+    description: str = Field(default="", max_length=500)
 
 
 class TransactionOut(BaseModel):
@@ -51,17 +57,21 @@ class TransactionOut(BaseModel):
     type: str
     category: str
     description: str
-    is_recurring: bool
-
     model_config = {"from_attributes": True}
 
 
-class PlannedExpense(BaseModel):
-    date: date
-    amount: float = Field(gt=0)
-    description: str = "Planned expense"
+class BudgetIn(BaseModel):
+    amount: float = Field(gt=0, allow_inf_nan=False)
+    month: str | None = None
 
-
-class WhatIfIn(BaseModel):
-    horizon: int = Field(default=30, ge=7, le=60)
-    expenses: list[PlannedExpense]
+    @field_validator("month")
+    @classmethod
+    def valid_budget_month(cls, value):
+        if value is not None:
+            try:
+                parsed = date.fromisoformat(f"{value}-01")
+            except ValueError as exc:
+                raise ValueError("Month must use YYYY-MM format") from exc
+            if parsed.strftime("%Y-%m") != value:
+                raise ValueError("Month must use YYYY-MM format")
+        return value

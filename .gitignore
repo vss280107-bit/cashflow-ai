@@ -1,6 +1,7 @@
 # Frontend dependencies and build files
 node_modules/
 dist/
+.vite/
 
 # Python
 __pycache__/
@@ -14,12 +15,14 @@ venv/
 .env.*
 !.env.example
 
-# Local database
+# Local databases and test artifacts
 *.db
 *.sqlite3
+.coverage
 
 # OS files
 .DS_Store
+Thumbs.db
 
 # Logs
 *.log
